@@ -1,4 +1,4 @@
-# exoplanets-distance
+# stat512-exoplanets-distance
 
 Exoplanets are planets that orbit stars outside our solar system. Unlike the planets in our solar system that orbit the Sun, exoplanets revolve around other stars in the Milky Way galaxy and potentially beyond. The NASA Exoplanet Archive is a comprehensive astronomical database dedicated to the collection and dissemination of data related to exoplanets and their host stars. The distance of the discovered exoplanets is a very important physical parameter as it permits us to convert observed properties to the actual system properties.
 This project was part of my coursework of STAT 512: Methods of Data Analysis II taken in Fall 2023 in Montana State University. In this project I use statistical analysis tools like (model selection, hypothesis testing) to investigate whether the mean exoplanet distances are different between the discovery methods while controlling for the other properties of the exoplanet and its host star. Namely, the exoplanet’s orbital period, the host star’s mass, and its Gaia magnitude (brightness). I also investigate whether there are interactions between these predictors.
