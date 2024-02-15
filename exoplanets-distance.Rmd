@@ -1,0 +1,197 @@
+---
+title: "512 Project Code"
+output:
+  word_document:
+    fig_height: 5
+    fig_width: 8
+date: ""
+author: 
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(message = FALSE,
+                      warning = FALSE)
+options(show.signif.stars = FALSE)
+
+library(ggplot2)
+library(ggthemes)
+library(tidyverse)
+library(car)
+library(effects)
+library(readxl)
+library(mosaic)
+library(catstats2)
+library(ggResidpanel)
+library(easyalluvial)
+library(emmeans)
+library(patchwork)
+library(plotly)
+library(dplyr)
+theme_set(theme_bw()) #Prevents need for + theme_bw() in ggplots
+```
+
+Loading data
+
+```{r}
+df <- read.csv("PS_2023.10.28_11.10.58.csv")
+```
+
+Removing planets that have a controversial flag (whether the confirmation status of a planet has been questioned in the published literature)
+
+```{r}
+filtered_df <- df %>% filter(pl_controv_flag != 1)
+```
+
+Remove duplicates based on lowest average distance error and keep the most recent publication date in case of ties
+
+```{r}
+filtered_df$PublicationDate <- as.Date(paste0(filtered_df$pl_pubdate, "-01"))
+filtered_df <- filtered_df %>%
+  mutate(AvgDistError = (sy_disterr1 + sy_disterr1) / 2) %>%
+  arrange(pl_name, AvgDistError, PublicationDate) %>%
+  group_by(pl_name) %>%
+  filter(AvgDistError == min(AvgDistError)) %>%
+  slice_tail(n = 1) %>%
+  ungroup()
+filtered_df <- filtered_df %>%
+  arrange(pl_name) %>%
+  group_by(hostname) %>%
+  slice_head(n=1) %>%
+  ungroup()
+```
+
+Only keeping the columns that we are interested in
+
+```{r}
+compact_df <- filtered_df %>% select(pl_name,hostname,discoverymethod,pl_orbper,pl_orbsmax,pl_rade,pl_bmasse,pl_eqt,pl_orbincl,st_teff,st_rad,st_mass,sy_dist,sy_gaiamag) 
+```
+
+Renaming columns to more clear names
+
+```{r}
+compact_df <- compact_df %>% dplyr::rename(OrbitalPeriod = pl_orbper,SemiMajorAxis = pl_orbsmax, Radius = pl_rade, Mass = pl_bmasse, Temperature = pl_eqt, OrbitInclination = pl_orbincl,StarTemperature = st_teff, StarRadius = st_rad, StarMass = st_mass, Distance = sy_dist,Magnitude = sy_gaiamag)
+```
+
+Visualizing missing data
+
+```{r}
+#compact_df <- compact_df %>% filter(StarSpecType!="")
+library(mi)
+mdf <- missing_data.frame(as.data.frame(compact_df))
+image(mdf)
+```
+
+Based on the missing data visualization and for the sake of simplicity of the analysis, I will only keep the following variables: planet name(for identification only), discovery method, orbital period, star temperature, star mass, magnitude and distance.
+
+```{r}
+final_df <- compact_df %>% select(pl_name,discoverymethod,OrbitalPeriod,StarMass,Distance,Magnitude,hostname)
+final_df <- final_df %>% drop_na(pl_name,discoverymethod,OrbitalPeriod,StarMass,Distance,Magnitude,hostname)
+mdf <- missing_data.frame(as.data.frame(final_df))
+image(mdf)
+```
+Converting discovery method into factors
+
+```{r}
+final_df <- final_df %>% mutate(discoverymethod = factor(discoverymethod))
+summary(final_df)
+```
+
+```{r}
+tally(~discoverymethod, data = final_df)
+```
+```{r}
+final_df <- final_df %>% mutate(discoverymethod = forcats::fct_collapse(discoverymethod,"Timing Variations"= c("Eclipse Timing Variations", "Pulsation Timing Variations", "Transit Timing Variations"),Other = c("Astrometry", "Orbital Brightness Modulation","Imaging")))
+tally(~discoverymethod, data = final_df)
+summary(final_df)
+```
+
+```{r}
+final_df <- final_df %>%
+ mutate(log_Distance = log(Distance), log_OrbitalPeriod = log(OrbitalPeriod), log_StarMass = log(StarMass))
+enhanced_stripchart(data=final_df,log_Distance~discoverymethod)
+```
+```{r}
+library(GGally)
+final_df %>% select(discoverymethod,log_OrbitalPeriod,log_StarMass,Magnitude,log_Distance) %>% ggpairs()
+```
+Remove the outlier in the orbital period since it has very large error
+
+```{r}
+final_df <- final_df %>% filter(OrbitalPeriod != 402000000)
+final_df %>% select(discoverymethod,log_OrbitalPeriod,log_StarMass,Magnitude,log_Distance) %>% ggpairs()
+```
+```{r}
+summary(final_df)
+```
+
+
+Initial model
+
+```{r}
+library(lme4)
+initial_model <- lm(log_Distance~(discoverymethod+log_OrbitalPeriod+log_StarMass+Magnitude),data=final_df)
+summary(initial_model)
+Anova(initial_model)
+```
+Diagnostic and effects plots
+
+```{r}
+resid_panel(initial_model, "R", alpha = 0.3)
+```
+
+```{r}
+plot(allEffects(initial_model, residuals = T), grid = T)
+```
+VIF Calculation
+
+```{r}
+vif(initial_model)
+```
+
+Four-way interaction model
+```{r}
+model1 <- lm(log_Distance~(discoverymethod*log_OrbitalPeriod*log_StarMass*Magnitude),data=final_df)
+summary(model1)
+Anova(model1,test.statistic = "F")
+```
+
+
+Backward Step-wise Testing Process
+```{r}
+model2 <- lm(log_Distance~(discoverymethod*log_OrbitalPeriod*log_StarMass*Magnitude)-discoverymethod:log_OrbitalPeriod:log_StarMass:Magnitude,data=final_df)
+Anova(model2)
+model3 <- lm(log_Distance~(discoverymethod*log_OrbitalPeriod*log_StarMass*Magnitude)-discoverymethod:log_OrbitalPeriod:log_StarMass:Magnitude-discoverymethod:log_StarMass:Magnitude,data=final_df)
+Anova(model3)
+model4 <- lm(log_Distance~(discoverymethod*log_OrbitalPeriod*log_StarMass*Magnitude)-discoverymethod:log_OrbitalPeriod:log_StarMass:Magnitude-discoverymethod:log_StarMass:Magnitude-discoverymethod:log_OrbitalPeriod:log_StarMass,data=final_df)
+Anova(model4)
+model5 <- lm(log_Distance~(discoverymethod*log_OrbitalPeriod*log_StarMass*Magnitude)-discoverymethod:log_OrbitalPeriod:log_StarMass:Magnitude-discoverymethod:log_StarMass:Magnitude-discoverymethod:log_OrbitalPeriod:log_StarMass-discoverymethod:log_OrbitalPeriod:Magnitude,data=final_df)
+Anova(model5)
+summary(model5)
+```
+
+
+Diagnostics and effects for final model
+```{r}
+resid_panel(model5, "R", alpha = 0.3)
+plot(allEffects(model5), grid = T,multiline=T,ci.style="bands")
+#plot(allEffects(model5), grid = T,multiline=T,ci.style="bands",selection=1)
+#plot(allEffects(model5), grid = T,multiline=T,ci.style="bands",selection=2)
+#plot(allEffects(model5), grid = T,multiline=T,ci.style="bands",selection=3)
+#plot(allEffects(model5), grid = T,multiline=T,ci.style="bands",selection=4)
+```
+
+Pairwise comparison between the discovery methods in original additive model
+```{r}
+library(emmeans)
+res1 <- emmeans(initial_model,pairwise ~ discoverymethod,adjust="tukey")
+res1
+plot(res1, comparison=T)
+multcomp::cld(res1,alpha=0.05, Letters=LETTERS)
+model5.emms <- emmeans(initial_model,"discoverymethod")
+model5.emms
+contrast(model5.emms,list(gamma1=c(0,0,-1,1))) %>% confint() %>% as.data.frame()
+contrast(model5.emms,list(gamma1=c(-1,0,0,1))) %>% confint() %>% as.data.frame()
+contrast(model5.emms,list(gamma1=c(-1,1,0,0))) %>% confint() %>% as.data.frame()
+contrast(model5.emms,list(gamma1=c(-1,0,0,1))) %>% confint() %>% as.data.frame()
+```
+
